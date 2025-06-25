@@ -1,9 +1,10 @@
 from g4f.client import Client
 from g4f import models
-import os
-from dotenv import load_dotenv
+# import os
+# from dotenv import load_dotenv
+import logging
 
-load_dotenv(dotenv_path="/home/gleb/TGbot_projects/.env", override=True)
+# load_dotenv(dotenv_path="/home/gleb/TGbot_projects/.env", override=True)
 
 class IIHandler:
     def __init__(self):
@@ -15,20 +16,22 @@ class IIHandler:
         # self.proxy=f"http://{self.user}:{self.password}@{self.host}"
 
     def answerII(self, text):
+        for model in models.__all__:
         # if user_id not in self.history:
             # self.history[user_id] = []
         # self.history[user_id].append({"role": "user", "content": text})
         # self.trim_history(user_id)
-        response = self.client.chat.completions.create(
-            text,
-            model=models.default,
-            web_search=False
-        )
-        if response and len(response.choices) > 0:
-            # self.history[user_id].append({"role": "assistant", "content": answer})
-            return response.choices[0].message.content
-        else:
-            return 'ИИ не дал ответа'
+            try:
+                response = self.client.chat.completions.create(
+                    text,
+                    model=models.default,
+                    web_search=False
+                )
+                if response and len(response.choices) > 0:
+                    # self.history[user_id].append({"role": "assistant", "content": answer})
+                    return response.choices[0].message.content
+            except:
+                continue
 
     # def trim_history(self, user_id, max_length=4096):
     #     if user_id not in self.history:

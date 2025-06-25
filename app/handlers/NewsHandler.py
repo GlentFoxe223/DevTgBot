@@ -1,10 +1,8 @@
 import requests
 from bs4 import BeautifulSoup
-from bs4 import NavigableString, Tag
 from urllib.parse import urljoin
 import os
 from dotenv import load_dotenv
-import re
 
 class NewsHandler:
     def __init__(self):
@@ -55,14 +53,15 @@ class NewsHandler:
                         if link_tag:
                             title = link_tag.get_text(strip=True)
                             url = urljoin(self.base_url, link_tag['href'])
-                            if title and url:
-                                news_data.append({'title': title, 'link': url})
+                            img_tag=link_tag.find('div', class_="news__pic")
+                            if img_tag:
+                                image=img_tag.find('img', src=True)
+                                image_link=urljoin(self.base_url, image['src'])
+                                if title and url:
+                                    news_data.append({'title': title, 'link': url, 'photo_link': image_link})
         except Exception as e:
-            print(f"[Ошибка парсинга новостей] {e}")
+            print(f"Ошибка парсинга новостей- {e}")
         return news_data
-    
-    def get_images(self, html):
-        None
 
     def get_news(self):
         html = self.fetch_page()
@@ -82,30 +81,58 @@ class NewsHandler:
             if response.status_code == 200:
                 return response.text
             else:
-                print(f"[Ошибка] Код ответа: {response.status_code}")
+                print(f" Код ответа: {response.status_code}")
         except requests.exceptions.RequestException as e:
-            print(f"[Ошибка запроса] {e}")
+            print(f"Ошибка запроса- {e}")
         return None
 
-    def parse_deep_news(self, html):
-        deep_news = []
+    def parse_deep_news(self, html, url):
+        cleaned = []
+        images = []
+        media = []
+
         try:
             soup = BeautifulSoup(html, 'html.parser')
             article_tag = soup.find('div', class_='l-main')
             if article_tag:
                 content = article_tag.find('article', class_='article')
                 if content:
+
                     for p in content.find_all('p'):
-                        cleaned = self.clean_html_tags(p)
-                        if cleaned:
-                            
-                            deep_news.append(cleaned)
+                        cleaned.append(self.clean_html_tags(p))
+                    main_photo_tag=content.find('figure', class_='article__left article__photo')
+                    main_photo_url_tag=main_photo_tag.find('img', src=True)
+                    main_image_url = urljoin(url, main_photo_url_tag['src'])
+                    images.append(main_image_url)
+
+                    try:
+                        for figure in content.find_all('figure'):
+                            photo_div = figure.find('div', class_='article__video-container')
+                            if photo_div:
+                                image_tag = photo_div.find('img', src=True)
+                                if image_tag:
+                                    image_url = urljoin(url, image_tag['src'])
+                                    images.append(image_url)
+                    except:
+                        print('Фото нет')
+
+                    for center in content.find_all('center'):
+                        iframe = center.find('iframe')
+                        if 'src' in iframe.attrs and iframe['src'].startswith('https://'):
+                            media.append(iframe['src'])
+                        else:
+                            print('iframe не найден')
+
+                    deep_news = {
+                        'title': cleaned,
+                        'images': images,
+                        'media': media
+                    }
+
         except Exception as e:
-            print(f"[Ошибка парсинга статьи] {e}")
+            print(f"Ошибка парсинга статьи - {e}")
+        print(media)
         return deep_news
-    
-    def get_deep_images(self):
-        None
 
     def clean_html_tags(self, tag):
         allowed_tags = {'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'del', 'code', 'pre'}
@@ -122,5 +149,4 @@ class NewsHandler:
     def get_deep_news(self, url):
         html = self.fetch_deep_page(url)
         if html:
-            return self.parse_deep_news(html)
-        return []
+            return self.parse_deep_news(html, url)

@@ -2,8 +2,10 @@ import os
 from dotenv import load_dotenv
 import telebot
 from telebot import types
-import html
+import html as thtml
 import re
+import requests
+from io import BytesIO
 
 load_dotenv(dotenv_path="/home/gleb/TGbot_projects/.env", override=True)
 BOT_TOKEN = os.getenv("BOT_API1")
@@ -17,9 +19,14 @@ from db.DBsearcher import DBsearcher
 from handlers.WeatherHandler import WeatherHandler
 from handlers.NewsHandler import NewsHandler
 from handlers.IIHandler import IIHandler
+from utils.helpers import Cleaner
+from utils.helpers import Photo
+from utils.helpers import Player
 
 class BotCore:
     def __init__(self):
+        load_dotenv(dotenv_path="/home/gleb/TGbot_projects/.env", override=True)
+        
         self.db = DBsearcher('fullbotdata.db')
 
         self.main_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -36,7 +43,20 @@ class BotCore:
 
         self.register_handlers()
 
-        self.answer = IIHandler()
+        self.proxy_address = os.getenv('proxy_address')
+        self.proxy_username = os.getenv('proxy_username')
+        self.proxy_password = os.getenv('proxy_password')
+
+        self.proxies = {
+            "http": f"http://{self.proxy_username}:{self.proxy_password}@{self.proxy_address}",
+            "https": f"http://{self.proxy_username}:{self.proxy_password}@{self.proxy_address}"
+        }
+
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+
 
     def register_handlers(self):
         @bot.message_handler(commands=['start'])
@@ -109,7 +129,7 @@ class BotCore:
             # types.KeyboardButton('Очистить историю')
             ]
             II_kb.add(*buttons_for_II)
-            bot.send_message(message.chat.id, 'Начните диалог с ИИ(обработка занимает время, поэтому после каждого запроса немного подождите)', reply_markup=II_kb)
+            bot.send_message(message.chat.id, 'Начните диалог с ИИ(обработка занимает время, поэтому после каждого запроса немного подождите, также ИИ не имеет памяти, но в будущем может быть добавлена)', reply_markup=II_kb)
             bot.register_next_step_handler(message, self.process_II)
 
         @bot.message_handler(func=lambda m: m.text == 'Назад')
@@ -152,9 +172,17 @@ class BotCore:
         total_news = len(news)
         for idx, item in enumerate(news_page, start=start + 1):
             text = f"{idx}. {item['title']}"
+            image = requests.get(
+                f'{item["photo_link"]}',                
+                headers=self.headers,
+                proxies=self.proxies,
+                timeout=30,
+                verify=False)
+            B_image = BytesIO(image.content)
             markup = types.InlineKeyboardMarkup()
             button = types.InlineKeyboardButton("Читать статью", callback_data=item['link'])
             markup.add(button)
+            bot.send_photo(chat_id, B_image)
             bot.send_message(chat_id, text, reply_markup=markup)
         if end >= total_news:
             bot.send_message(chat_id, "Новостей на сегодня больше нет.", reply_markup=self.main_kb)
@@ -165,34 +193,39 @@ class BotCore:
             bot.send_message(chat_id, "Хотите ещё новостей?", reply_markup=news_kb)
 
     def send_full_page(self, chat_id, news_url):
+        news_url='https://charter97.org/ru/news/2025/6/19/645061/'
         parser = NewsHandler()
-        article_paragraphs = parser.get_deep_news(news_url)
-        article_text = "\n\n".join(article_paragraphs)
-        cleaned_article_text = self.clean_words(article_text)
-        article_text = html.unescape(cleaned_article_text)
-        if len(article_text) > 4096:
-            article_text = article_text[:4093] + "..."
+        article = parser.get_deep_news(news_url)
+        text = "\n\n".join(article.get('title', []))
+        cleaner=Cleaner()
+        text = cleaner.clean_words(text)
+        text = thtml.unescape(text)
         bot.send_message(
             chat_id,
-            article_text,
+            text[:4093] + "..." if len(text) > 4096 else text,
             reply_markup=self.main_kb,
             parse_mode='HTML'
         )
+        for img_url in article['images']:
+            try:
+                photohandler=Photo()
+                image=photohandler.picture_to_bytes(img_url)
+                bot.send_photo(chat_id, image)
+            except:
+                None
+        for media_url in article['media']:
+            player = Player(media_url)
+            media = player.fetch_media()
+            if media['type'] == 'photo':
+                bot.send_photo(chat_id, photo=media['bytes'])
+            elif media['type'] == 'video':
+                bot.send_video(chat_id, video=media['bytes'])
+            elif media['type'] == 'audio':
+                bot.send_audio(chat_id, audio=media['bytes'])
+            else:
+                print('Ошибка медиа')
+            
 
-    def clean_words(self, page):
-        bad_url1 = os.getenv('bad_url1')
-        bad_url2 = os.getenv('bad_url2')
-        bad_url3 = os.getenv('bad_url3')
-        bad_word1 = os.getenv('bad_word1')
-        bad_word2 = os.getenv('bad_word2')
-        bad_word3 = os.getenv('bad_word3')
-        bad_word4 = os.getenv('bad_word4')
-        bad_words = [bad_url1,bad_url2,bad_url3,bad_word1,bad_word2,bad_word3,bad_word4]
-        pattern = r'\b(?:' + '|'.join(map(re.escape, bad_words)) + r')\b'
-        clean_text = re.sub(r'https?://\S+|[@#]\w+|' + pattern, '', page)
-        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-        return clean_text    
-    
     def process_II(self, message):
         if message.text=='Назад':
             bot.send_message(
@@ -210,7 +243,8 @@ class BotCore:
         #     bot.register_next_step_handler(message, self.process_II)
         else:
             if isinstance(message.text, str):
-                response = self.answer.answerII(message.text)
+                answer=IIHandler()
+                response = answer.answerII(message.text)
                 bot.send_message(message.chat.id, response)
                 bot.register_next_step_handler(message, self.process_II)
             else:

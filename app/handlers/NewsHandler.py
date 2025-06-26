@@ -116,12 +116,24 @@ class NewsHandler:
                     except:
                         print('Фото нет')
 
-                    for center in content.find_all('center'):
-                        iframe = center.find('iframe')
-                        if 'src' in iframe.attrs and iframe['src'].startswith('https://'):
-                            media.append(iframe['src'])
-                        else:
-                            print('iframe не найден')
+                    main_wrap_div = soup.find('div', class_='l-main')
+                    if main_wrap_div:
+                        for iframe in main_wrap_div.find_all('iframe'):
+                            if 'src' in iframe.attrs and iframe['src'].startswith('https://'):
+                                media.append(iframe['src'])
+                            else:
+                                print('не найдено src')
+                        for video_tag in soup.find_all('video'):
+                            sources = video_tag.find_all('source')
+                            for source in sources:
+                                if 'src' in source.attrs:
+                                    media.append(source['src'])
+                                else:
+                                    print('не найдено src')
+                    else:
+                        print('не найден main-wrap')
+                                  
+                    print(media)
 
                     deep_news = {
                         'title': cleaned,
@@ -131,9 +143,8 @@ class NewsHandler:
 
         except Exception as e:
             print(f"Ошибка парсинга статьи - {e}")
-        print(media)
         return deep_news
-
+    
     def clean_html_tags(self, tag):
         allowed_tags = {'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'del', 'code', 'pre'}
         allowed_attrs = {'href'}

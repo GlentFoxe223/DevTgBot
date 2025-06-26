@@ -3,9 +3,6 @@ from dotenv import load_dotenv
 import telebot
 from telebot import types
 import html as thtml
-import re
-import requests
-from io import BytesIO
 
 load_dotenv(dotenv_path="/home/gleb/TGbot_projects/.env", override=True)
 BOT_TOKEN = os.getenv("BOT_API1")
@@ -19,6 +16,7 @@ from db.DBsearcher import DBsearcher
 from handlers.WeatherHandler import WeatherHandler
 from handlers.NewsHandler import NewsHandler
 from handlers.IIHandler import IIHandler
+from handlers.CurrencyHandler import CurrencyHandler
 from utils.helpers import Cleaner
 from utils.helpers import Photo
 from utils.helpers import Player
@@ -57,6 +55,8 @@ class BotCore:
                           "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
 
+        self.user_data = {}
+        
 
     def register_handlers(self):
         @bot.message_handler(commands=['start'])
@@ -83,9 +83,12 @@ class BotCore:
         def cmd_currency(message):
             bot.send_message(
                 message.chat.id,
-                "Конвертация валют в разработке…",
-                reply_markup=self.main_kb
+                'Введите валюту, которую вы будите переводить',
+                reply_markup=self.remove_kb
             )
+            bot.register_next_step_handler(message, self.process_currency_1)
+            
+
 
         @bot.message_handler(func=lambda m: m.text == 'Новости')
         def cmd_news(message):
@@ -172,17 +175,12 @@ class BotCore:
         total_news = len(news)
         for idx, item in enumerate(news_page, start=start + 1):
             text = f"{idx}. {item['title']}"
-            image = requests.get(
-                f'{item["photo_link"]}',                
-                headers=self.headers,
-                proxies=self.proxies,
-                timeout=30,
-                verify=False)
-            B_image = BytesIO(image.content)
+            photohandler=Photo()
+            image=photohandler.picture_to_bytes(item['photo_link'])
             markup = types.InlineKeyboardMarkup()
             button = types.InlineKeyboardButton("Читать статью", callback_data=item['link'])
             markup.add(button)
-            bot.send_photo(chat_id, B_image)
+            bot.send_photo(chat_id, image)
             bot.send_message(chat_id, text, reply_markup=markup)
         if end >= total_news:
             bot.send_message(chat_id, "Новостей на сегодня больше нет.", reply_markup=self.main_kb)
@@ -193,7 +191,6 @@ class BotCore:
             bot.send_message(chat_id, "Хотите ещё новостей?", reply_markup=news_kb)
 
     def send_full_page(self, chat_id, news_url):
-        news_url='https://charter97.org/ru/news/2025/6/19/645061/'
         parser = NewsHandler()
         article = parser.get_deep_news(news_url)
         text = "\n\n".join(article.get('title', []))
@@ -225,6 +222,33 @@ class BotCore:
             else:
                 print('Ошибка медиа')
             
+    def process_currency_1(self, message):
+        currency = message.text.strip()
+        if not currency:
+            bot.send_message(message.chat.id, "Введите корректную валюту.")
+            return
+        self.user_data[message.chat.id] = {'from': currency}
+        message = bot.send_message(message.chat.id, 'Введите валюту, в которую вы будете переводить:')
+        bot.register_next_step_handler(message, self.process_currency_2)
+
+    def process_currency_2(self, message):
+        currency = message.text.strip()
+        if not currency:
+            bot.send_message(message.chat.id, "Введите корректную валюту.")
+            return
+        self.user_data[message.chat.id]['to'] = currency
+        message = bot.send_message(message.chat.id, 'Введите количество первой валюты:')
+        bot.register_next_step_handler(message, self.process_currency_3)
+
+    def process_currency_3(self, message):
+        amount = message.text.strip()
+        from_currency = self.user_data[message.chat.id].get('from')
+        to_currency = self.user_data[message.chat.id].get('to')
+
+        currency_handler = CurrencyHandler()
+        result = currency_handler.get_num(from_currency, to_currency, amount)
+        bot.send_message(message.chat.id, result, reply_markup=self.main_kb)
+        self.user_data.pop(message.chat.id, None)
 
     def process_II(self, message):
         if message.text=='Назад':

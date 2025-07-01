@@ -2,3 +2,5 @@
 botdata.db
 .venv
 testhandler.py
+LICENSE.chromedriver
+THIRD_PARTY_NOTICES.chromedriver

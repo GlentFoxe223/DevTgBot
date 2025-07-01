@@ -25,7 +25,7 @@ class BotCore:
     def __init__(self):
         load_dotenv(dotenv_path="/home/gleb/TGbot_projects/.env", override=True)
         
-        self.db = DBsearcher('fullbotdata.db')
+        self.db = DBsearcher('botdata.db')
 
         self.main_kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
         buttons = [
@@ -87,8 +87,6 @@ class BotCore:
                 reply_markup=self.remove_kb
             )
             bot.register_next_step_handler(message, self.process_currency_1)
-            
-
 
         @bot.message_handler(func=lambda m: m.text == 'Новости')
         def cmd_news(message):
@@ -246,7 +244,8 @@ class BotCore:
         to_currency = self.user_data[message.chat.id].get('to')
 
         currency_handler = CurrencyHandler()
-        result = currency_handler.get_num(from_currency, to_currency, amount)
+        bot.send_message(message.chat.id, 'подождите, обработка информации')
+        result = currency_handler.get_currency(from_currency, to_currency, amount)
         bot.send_message(message.chat.id, result, reply_markup=self.main_kb)
         self.user_data.pop(message.chat.id, None)
 
